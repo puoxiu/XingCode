@@ -1,0 +1,3 @@
+# Phase 1 development dependency for XingCode.
+# Runtime package metadata stays in pyproject.toml.
+pytest>=8.0.0

@@ -1,2 +1,8 @@
-
+.conda-env/
+.conda-pkgs/
+.pytest_cache/
+__pycache__/
+build/
+dist/
+*.pyc
 node/
