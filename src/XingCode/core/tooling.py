@@ -4,7 +4,7 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Callable
 
-
+# 数据类：后台任务结果（仅占位，未来扩展异步/后台任务用）
 @dataclass(slots=True)
 class BackgroundTaskResult:
     """Placeholder for future background task support."""
@@ -31,15 +31,18 @@ class ToolResult:
 class ToolContext:
     """Shared runtime context passed into tools."""
 
-    cwd: str
+    cwd: str            # Current Working Directory
     permissions: Any | None = None
     _runtime: dict[str, Any] | None = None
 
-
+# 类型别名：输入验证函数
+# 作用：接收原始输入 → 校验/解析 → 返回合法数据，失败抛异常
 Validator = Callable[[Any], Any]
+# 类型别名：工具执行函数
+# 作用：接收合法输入 + 上下文 → 执行逻辑 → 返回标准化 ToolResult
 Runner = Callable[[Any, ToolContext], ToolResult]
 
-
+# 声明式工具定义，描述一个工具的完整信息：名称、功能、输入格式、校验、执行逻辑
 @dataclass(slots=True)
 class ToolDefinition:
     """Declarative description of one tool."""
@@ -50,7 +53,8 @@ class ToolDefinition:
     validator: Validator
     run: Runner
 
-
+# 核心类：工具注册表（统一管理、查找、安全执行所有工具）
+# 作用：提供工具列表、查找工具、执行工具、资源释放
 class ToolRegistry:
     """O(1) tool lookup and execution wrapper with safety nets."""
 

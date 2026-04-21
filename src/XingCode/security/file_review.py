@@ -7,6 +7,8 @@ from XingCode.core.tooling import ToolContext, ToolResult
 
 
 def build_unified_diff(file_path: str, before: str, after: str) -> str:
+    """Build a compact unified diff preview for one file edit."""
+
     if before == after:
         return f"(no changes for {file_path})"
 
@@ -23,6 +25,8 @@ def build_unified_diff(file_path: str, before: str, after: str) -> str:
 
 
 def load_existing_file(target_path: str | Path) -> str:
+    """Load an existing UTF-8 text file, or return an empty string for new files."""
+
     file_path = Path(target_path)
     if not file_path.exists():
         return ""
@@ -35,6 +39,8 @@ def apply_reviewed_file_change(
     target_path: str | Path,
     next_content: str,
 ) -> ToolResult:
+    """Review a file change with diff approval and write only after approval passes."""
+
     target = Path(target_path)
     previous_content = load_existing_file(target)
     if previous_content == next_content:
@@ -44,6 +50,8 @@ def apply_reviewed_file_change(
     if context.permissions is not None:
         context.permissions.ensure_edit(str(target), diff)
 
+    # Every write-capable tool reuses this helper so the diff review boundary
+    # stays centralized in one place instead of being reimplemented per tool.
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(next_content, encoding="utf-8")
     return ToolResult(ok=True, output=f"Applied reviewed changes to {file_path}")

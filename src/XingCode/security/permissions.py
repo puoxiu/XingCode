@@ -24,24 +24,34 @@ _IS_WINDOWS = sys.platform == "win32"
 # ====================== 工具函数 ======================
 
 def _normalize_path(target_path: str) -> str:
+    """Resolve a path once so later permission checks compare normalized values."""
+
     return str(Path(target_path).resolve())
 
 
 def _is_within_directory(root: str, target: str) -> bool:
+    """Check whether the target path stays inside the given root directory."""
+
     root_value = root.lower() if _IS_WINDOWS else root
     target_value = target.lower() if _IS_WINDOWS else target
     return target_value == root_value or target_value.startswith(root_value + os.sep)
 
 
 def _matches_directory_prefix(target_path: str, directories: set[str]) -> bool:
+    """Check whether a path matches any approved or denied directory prefix."""
+
     return any(_is_within_directory(directory, target_path) for directory in directories)
 
 
 def _format_command_signature(command: str, args: list[str]) -> str:
+    """Build the stable command signature used for session command decisions."""
+
     return " ".join([command, *args]).strip()
 
 
 def _classify_dangerous_command(command: str, args: list[str]) -> str | None:
+    """Return a human-readable reason when a command should require approval."""
+
     normalized_args = [arg.strip() for arg in args if arg.strip()]
     signature = _format_command_signature(command, normalized_args)
 
@@ -84,6 +94,8 @@ class PermissionManager:
     """In-memory permission manager for path, command, and edit approvals."""
 
     def __init__(self, workspace_root: str, prompt: PromptHandler | None = None) -> None:
+        """Create one in-memory permission manager for the current runtime session."""
+
         # 工作区根目录（AI 只能默认访问这里）
         self.workspace_root = _normalize_path(workspace_root)
         self.prompt = prompt
@@ -103,13 +115,19 @@ class PermissionManager:
         self.turn_allow_all_edits = False
 
     def begin_turn(self) -> None:
+        """Reset turn-scoped edit approvals at the start of a model turn."""
+
         self.turn_allowed_edits.clear()
         self.turn_allow_all_edits = False
 
     def end_turn(self) -> None:
+        """Reset turn-scoped edit approvals at the end of a model turn."""
+
         self.begin_turn()
 
     def get_summary(self) -> list[str]:
+        """Return a compact summary for later prompt/context injection."""
+
         summary = [f"cwd: {self.workspace_root}"]
         extra_dirs = ", ".join(sorted(self.allowed_directory_prefixes)[:4]) or "none"
         summary.append(f"extra allowed dirs: {extra_dirs}")
@@ -121,6 +139,8 @@ class PermissionManager:
         return summary
 
     def ensure_path_access(self, target_path: str, intent: str) -> None:
+        """Allow cwd-local paths automatically and prompt for external paths."""
+
         # 检查路径是否允许访问：
         # 1. 在工作区内 → 放行
         # 2. 已在允许/拒绝列表 → 按规则处理
@@ -130,6 +150,8 @@ class PermissionManager:
         if _is_within_directory(self.workspace_root, normalized_target):
             return
 
+        # Denials are checked before approvals so previously rejected paths fail
+        # fast without showing the same prompt again.
         if (
             normalized_target in self.session_denied_paths
             or _matches_directory_prefix(normalized_target, self.denied_directory_prefixes)
@@ -189,6 +211,8 @@ class PermissionManager:
         command_cwd: str,
         force_prompt_reason: str | None = None,
     ) -> None:
+        """Review a dangerous or unknown command after its cwd has been approved."""
+
         self.ensure_path_access(command_cwd, "command_cwd")
         reason = force_prompt_reason or _classify_dangerous_command(command, args)
         if not reason:
@@ -241,6 +265,8 @@ class PermissionManager:
         raise RuntimeError(f"Command denied: {signature}")
 
     def ensure_edit(self, target_path: str, diff_preview: str) -> None:
+        """Require edit approval and always show the diff preview to the user."""
+
         normalized_target = _normalize_path(target_path)
 
         if (
@@ -263,6 +289,8 @@ class PermissionManager:
                 "Start XingCode in TTY mode to review it."
             )
 
+        # File edits are approved against the actual diff so the user can judge
+        # what content change will be written, not only which file is touched.
         result = self.prompt(
             {
                 "kind": "edit",
