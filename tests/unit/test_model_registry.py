@@ -10,8 +10,10 @@ from XingCode.core.tooling import ToolRegistry
 
 
 def test_detect_provider_returns_mock_for_mock_model() -> None:
-    """Mock model names should always route to the mock provider."""
-
+    """
+    【测试】Mock模型名称应始终路由到Mock提供程序
+    验证：输入"mock"，返回Provider.MOCK
+    """
     assert detect_provider("mock") is Provider.MOCK
 
 
