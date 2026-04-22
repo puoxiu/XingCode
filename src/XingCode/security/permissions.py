@@ -116,7 +116,7 @@ class PermissionManager:
 
     def begin_turn(self) -> None:
         """Reset turn-scoped edit approvals at the start of a model turn."""
-
+        # 在每一轮 AI 推理开始时，清空“本轮临时权限”，确保每次推理都是独立的
         self.turn_allowed_edits.clear()
         self.turn_allow_all_edits = False
 

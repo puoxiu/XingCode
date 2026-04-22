@@ -184,7 +184,9 @@ class OpenAIModelAdapter:
     ) -> AgentStep:
         """向 OpenAI 兼容接口发起一次非 streaming 请求，并转换成内部 AgentStep。"""
 
-        request_body = self._build_request_body(messages)
+        request_body = self._build_request_body(messages)   # 根据 messages 构造 OpenAI Chat Completions 请求体（相当于纯翻译）
+        
+        # 造一个请求对象
         request = urllib.request.Request(
             url=self.runtime["baseUrl"].rstrip("/") + "/v1/chat/completions",
             data=json.dumps(request_body).encode("utf-8"),
@@ -195,6 +197,7 @@ class OpenAIModelAdapter:
             method="POST",
         )
 
+        # 发起请求 ------------------------------- Important： 真正调用了 OpenAI API 发送请求，获取响应 -------------------------------
         try:
             response = urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS)  # noqa: S310
         except urllib.error.HTTPError as error:
@@ -211,12 +214,14 @@ class OpenAIModelAdapter:
         if not choices:
             return AgentStep(type="assistant", content="")
 
+        # 从LLM响应中提取文本内容和工具调用
         choice = choices[0]
-        message = choice.get("message", {})
-        text_content = _normalize_openai_content(message.get("content"))
+        # 1. 提取 消息
+        message = choice.get("message", {}) 
+        text_content = _normalize_openai_content(message.get("content"))        
+        # 2. 提取 工具调用
         tool_calls_raw = message.get("tool_calls", [])
-
-        tool_calls: list[dict[str, Any]] = []
+        tool_calls: list[dict[str, Any]] = [] 
         for tool_call in tool_calls_raw if isinstance(tool_calls_raw, list) else []:
             function_block = tool_call.get("function", {})
             arguments = function_block.get("arguments", "{}")
@@ -238,6 +243,7 @@ class OpenAIModelAdapter:
             # 保证接口兼容，但不模拟真正的流式分块。
             on_stream_chunk(parsed_text)
 
+        # 让上层框架知道当前 Agent 处于什么状态，下一步该做什么。
         diagnostics = StepDiagnostics(
             stopReason=choice.get("finish_reason"),
             blockTypes=["tool_calls"] if tool_calls else (["text"] if text_content else []),
@@ -245,6 +251,7 @@ class OpenAIModelAdapter:
         )
 
         if tool_calls:
+            # 有工具调用，下一步需要执行工具调用
             return AgentStep(
                 type="tool_calls",
                 calls=tool_calls,

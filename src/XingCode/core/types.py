@@ -53,7 +53,7 @@ class AgentStep:
 
 class ModelAdapter(Protocol):
     """Protocol implemented by mock and real model adapters."""
-
+    # 模型适配器协议，定义了模型适配器必须实现的方法
     def next(
         self,
         messages: list[ChatMessage],

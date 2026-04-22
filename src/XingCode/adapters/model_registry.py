@@ -18,7 +18,7 @@ class Provider(str, Enum):
 
 def _coerce_provider(value: Any) -> Provider | None:
     """把自由输入的 provider 提示归一成 Provider 枚举。"""
-
+    # 例如输入参数 provider="openai3" 或 "openai" 都会被归一化为 Provider.OPENAI, 返回 Provider.OPENAI
     text = str(value).strip().lower()
     if not text:
         return None
@@ -31,6 +31,8 @@ def _coerce_provider(value: Any) -> Provider | None:
 def detect_provider(model: str, runtime: dict[str, Any] | None = None) -> Provider:
     """根据 runtime 和模型名推断应该走哪个 provider。"""
 
+    # 一般情况下 直接根据 runtime 中的 provider 提示判断 provider即可
+    # 如果 runtime 中没有 provider 提示，根据模型名和 baseUrl 推断 provider
     runtime = runtime or {}
     provider_hint = _coerce_provider(runtime.get("provider"))
     if provider_hint is not None:

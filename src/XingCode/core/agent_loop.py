@@ -6,7 +6,7 @@ from typing import Any
 from XingCode.core.tooling import ToolContext, ToolRegistry, ToolResult
 from XingCode.core.types import AgentStep, ChatMessage, ModelAdapter
 
-# 空响应重试提示：区分“工具后空响应”和“普通空响应”，方便后续模型继续联调。
+# 模型返回空响应时的提示词，用于引导模型继续输出，避免对话中断
 NUDGE_AFTER_EMPTY_RESPONSE = (
     "Your last response was empty after recent tool results. Continue immediately "
     "with the next concrete step or an explicit final answer if the task is complete."
@@ -32,13 +32,19 @@ def _is_empty_assistant_response(content: str) -> bool:
 
     return len(content.strip()) == 0
 
-
+# 辅助函数：判断是否为进度更新
+# 作用：用于在循环中，判断是否需要继续执行进度更新，还是直接结束循环
 def _is_progress_step(step: AgentStep) -> bool:
     """Treat either kind/contentKind progress flags as a progress-only update."""
 
     return step.kind == "progress" or step.contentKind == "progress"
 
-
+# 判断模型是否因为【可恢复的中断】而停止输出
+# 满足条件：
+# 1. 内容为空
+# 2. 停止原因是 pause_turn 或 max_tokens
+# 3. 被忽略的内容类型包含 thinking
+# 作用：遇到模型意外中断时，可以重试让模型继续，而不是直接失败
 def _is_recoverable_thinking_stop(step: AgentStep) -> bool:
     """Detect empty thinking stops that should be retried instead of failing the turn."""
 
@@ -50,7 +56,9 @@ def _is_recoverable_thinking_stop(step: AgentStep) -> bool:
         return False
     return "thinking" in step.diagnostics.ignoredBlockTypes
 
-
+# 处理并记录一条【进度消息】
+# 1. 调用回调通知外部（如前端显示加载中）
+# 2. 将进度消息存入对话历史（role=assistant_progress）
 def _emit_progress(
     current_messages: list[ChatMessage],
     content: str,
@@ -62,7 +70,11 @@ def _emit_progress(
         on_progress_message(content)
     current_messages.append({"role": "assistant_progress", "content": content})
 
-
+# 执行单个工具调用
+# 参数：
+# - call: 模型要求执行的工具信息（名称、参数）
+# - tools: 工具注册表
+# 返回：工具执行结果 ToolResult
 def _execute_tool_call(
     call: dict[str, Any],
     tools: ToolRegistry,
@@ -104,14 +116,16 @@ def _append_tool_messages(
         }
     )
 
-
+# """开启一轮权限检查周期
+# 只有权限管理器支持 begin_turn 时才调用
 def _begin_permission_turn(permissions: Any | None) -> None:
     """Start a permission turn when the permission manager supports turn hooks."""
 
     if permissions is not None and hasattr(permissions, "begin_turn"):
         permissions.begin_turn()
 
-
+# """结束一轮权限检查周期
+# 只有权限管理器支持 end_turn 时才调用
 def _end_permission_turn(permissions: Any | None) -> None:
     """Finish a permission turn when the permission manager supports turn hooks."""
 
@@ -137,13 +151,19 @@ def run_agent_turn(
 ) -> list[ChatMessage]:
     """Run one complete agent turn until final assistant output, user pause, or limit."""
 
+    # -------------------------- 【1】初始化变量 --------------------------
+    # 复制一份消息列表，避免修改外部原始数据，所有新增消息都存在这里
     current_messages = list(messages)
+    # 标记：本轮是否执行过工具（用于空响应时给不同提示）
     saw_tool_result = False
+    # 重试计数器：模型返回空内容时，最多重试 2 次，避免卡住
     empty_response_retry_count = 0
+    # 重试计数器：模型意外中断思考（max_tokens/pause）时，最多重试 3 次
     recoverable_thinking_retry_count = 0
 
     _begin_permission_turn(permissions)
     try:
+        # -------------------------- 【3】进入核心思考循环 --------------------------
         for _step_index in range(max_steps):
             next_step = model.next(current_messages, on_stream_chunk=on_assistant_stream_chunk)
 
@@ -154,7 +174,7 @@ def run_agent_turn(
                     _emit_progress(current_messages, next_step.content, on_progress_message)
                     current_messages.append({"role": "user", "content": NUDGE_CONTINUE})
                     continue
-
+                
                 if (
                     _is_recoverable_thinking_stop(next_step)
                     and recoverable_thinking_retry_count < 3
@@ -178,7 +198,7 @@ def run_agent_turn(
                         }
                     )
                     continue
-
+                
                 if _is_empty_assistant_response(next_step.content) and empty_response_retry_count < 2:
                     empty_response_retry_count += 1
                     current_messages.append(
@@ -192,7 +212,7 @@ def run_agent_turn(
                         }
                     )
                     continue
-
+                    
                 if _is_empty_assistant_response(next_step.content):
                     fallback = (
                         "Model returned an empty response after tool execution and the turn was stopped."
@@ -234,6 +254,7 @@ def run_agent_turn(
                     on_tool_result(call["toolName"], result.output, not result.ok)
 
                 saw_tool_result = True
+
                 _append_tool_messages(current_messages, call, result)
 
                 # ask_user 之类的工具会在这里中断本轮，让用户先回答。
