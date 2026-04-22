@@ -7,9 +7,10 @@ from typing import Any
 
 from XingCode.adapters import create_model_adapter
 from XingCode.app.headless import run_headless
+from XingCode.commands import handle_cli_input
 from XingCode.core import build_system_prompt, run_agent_turn
 from XingCode.security import PermissionManager
-from XingCode.storage import load_runtime_config
+from XingCode.storage import load_history_entries, load_runtime_config, remember_history_entry
 from XingCode.tools import create_default_tool_registry
 
 
@@ -85,6 +86,7 @@ def _run_interactive_session(cwd: str, runtime: dict[str, Any] | None, force_moc
     prompt_handler = _make_cli_permission_prompt()
     tools = create_default_tool_registry(cwd, runtime=runtime)  # 创建默认工具注册
     permissions = PermissionManager(cwd, prompt=prompt_handler)  # 创建权限管理器
+    history_entries = load_history_entries()
     model = create_model_adapter(
         model=runtime.get("model") if runtime else None,
         tools=tools,
@@ -105,6 +107,20 @@ def _run_interactive_session(cwd: str, runtime: dict[str, Any] | None, force_moc
                 continue
             if user_input in {"/exit", "/quit"}:
                 return 0
+
+            # 交互式 CLI 的历史和参考项目保持一致：所有非空输入都会进入最近历史。
+            history_entries = remember_history_entry(history_entries, user_input)
+
+            cli_output = handle_cli_input(
+                user_input,
+                cwd=cwd,
+                tools=tools,
+                permissions=permissions,
+                history_entries=history_entries,
+            )
+            if cli_output is not None:
+                print(cli_output)
+                continue
 
             # 每轮都重建 system prompt，确保权限摘要等动态信息保持最新。
             # 必须实时刷新，不能用旧的系统提示 所以第一条永远是最新的 system 系统提示词

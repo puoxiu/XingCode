@@ -4,9 +4,10 @@ import sys
 from pathlib import Path
 
 from XingCode.adapters import create_model_adapter
+from XingCode.commands import handle_cli_input
 from XingCode.core import build_system_prompt, run_agent_turn
 from XingCode.security import PermissionManager
-from XingCode.storage import load_runtime_config
+from XingCode.storage import load_history_entries, load_runtime_config, remember_history_entry
 from XingCode.tools import create_default_tool_registry
 
 
@@ -36,25 +37,38 @@ def run_headless(prompt: str | None = None, cwd: str | None = None) -> str:
     if not effective_prompt.strip():
         raise ValueError("Prompt cannot be empty.")
 
-    runtime = load_runtime_config(effective_cwd)
-    tools = create_default_tool_registry(effective_cwd, runtime=runtime)
+    # 先创建工具与权限，再处理本地 slash 命令，这样 /help、/read、/cmd 不依赖模型配置。
     permissions = PermissionManager(effective_cwd, prompt=None)
-    model = create_model_adapter(runtime.get("model"), tools, runtime)
-
-    # headless 入口只做一轮，因此系统 prompt 和用户输入一次性组装即可。
-    messages = [
-        {
-            "role": "system",
-            "content": build_system_prompt(
-                effective_cwd,
-                tools=tools,
-                permission_summary=permissions.get_summary(),
-            ),
-        },
-        {"role": "user", "content": effective_prompt},
-    ]
+    tools = create_default_tool_registry(effective_cwd, runtime=None)
 
     try:
+        history_entries = remember_history_entry(load_history_entries(), effective_prompt)
+        cli_output = handle_cli_input(
+            effective_prompt.strip(),
+            cwd=effective_cwd,
+            tools=tools,
+            permissions=permissions,
+            history_entries=history_entries,
+        )
+        if cli_output is not None:
+            return cli_output
+
+        runtime = load_runtime_config(effective_cwd)
+        model = create_model_adapter(runtime.get("model"), tools, runtime)
+
+        # headless 入口只做一轮，因此系统 prompt 和用户输入一次性组装即可。
+        messages = [
+            {
+                "role": "system",
+                "content": build_system_prompt(
+                    effective_cwd,
+                    tools=tools,
+                    permission_summary=permissions.get_summary(),
+                ),
+            },
+            {"role": "user", "content": effective_prompt},
+        ]
+
         result_messages = run_agent_turn(
             model=model,
             tools=tools,

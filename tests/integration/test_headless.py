@@ -8,6 +8,7 @@ import pytest
 
 from XingCode.app.headless import run_headless
 from XingCode.storage import config as config_module
+from XingCode.storage import history as history_module
 
 
 class FakePipe(io.StringIO):
@@ -41,6 +42,7 @@ def test_run_headless_returns_mock_response(tmp_path: Path, monkeypatch: pytest.
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config_module, "XINGCODE_SETTINGS_PATH", tmp_path / "home-settings.json")
+    monkeypatch.setattr(history_module, "XINGCODE_HISTORY_PATH", tmp_path / "history.json")
     _clear_runtime_env(monkeypatch)
     monkeypatch.setenv("XINGCODE_MODEL", "mock")
 
@@ -54,6 +56,7 @@ def test_run_headless_reads_prompt_from_stdin(tmp_path: Path, monkeypatch: pytes
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config_module, "XINGCODE_SETTINGS_PATH", tmp_path / "home-settings.json")
+    monkeypatch.setattr(history_module, "XINGCODE_HISTORY_PATH", tmp_path / "history.json")
     _clear_runtime_env(monkeypatch)
     monkeypatch.setenv("XINGCODE_MODEL", "mock")
     monkeypatch.setattr(sys, "stdin", FakePipe("hello from stdin"))
@@ -61,3 +64,38 @@ def test_run_headless_reads_prompt_from_stdin(tmp_path: Path, monkeypatch: pytes
     response = run_headless(None, cwd=str(tmp_path))
 
     assert "XingCode mock model" in response
+
+
+def test_run_headless_handles_help_without_runtime_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """本地 `/help` 命令不应该依赖 runtime 配置。"""
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_module, "XINGCODE_SETTINGS_PATH", tmp_path / "home-settings.json")
+    monkeypatch.setattr(history_module, "XINGCODE_HISTORY_PATH", tmp_path / "history.json")
+    _clear_runtime_env(monkeypatch)
+
+    response = run_headless("/help", cwd=str(tmp_path))
+
+    assert "/help" in response
+    assert "/cmd [cwd::]<command>" in response
+
+
+def test_run_headless_executes_read_shortcut_without_runtime_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """本地 `/read` 快捷命令也应该在无模型配置时可用。"""
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_module, "XINGCODE_SETTINGS_PATH", tmp_path / "home-settings.json")
+    monkeypatch.setattr(history_module, "XINGCODE_HISTORY_PATH", tmp_path / "history.json")
+    _clear_runtime_env(monkeypatch)
+    (tmp_path / "README.md").write_text("hello headless shortcut", encoding="utf-8")
+
+    response = run_headless("/read README.md", cwd=str(tmp_path))
+
+    assert "FILE: README.md" in response
+    assert "hello headless shortcut" in response
