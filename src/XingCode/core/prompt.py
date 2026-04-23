@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from XingCode.core.prompt_pipeline import PromptPipeline
 from XingCode.core.tooling import ToolDefinition, ToolRegistry
 
 # 系统提示词的固定角色说明：保持简洁，让 Phase 6 先稳定产出完整 prompt。
@@ -139,19 +140,32 @@ def build_system_prompt(
     """Build the Phase 6 system prompt from cwd, tools, permissions, and extras."""
 
     merged_extras = _merge_prompt_extras(tools, extras)
-    sections = [
-        BASE_ROLE_SECTION,
-        f"Current cwd: {cwd}",
-        _format_permission_section(permission_summary),
-        _format_tools_section(tools),
-    ]
+    # 当前阶段先引入 paragraph pipeline 的组织方式，但不输出动态边界，
+    # 因为 adapter 还没有真正利用该边界做 prompt cache。
+    pipeline = PromptPipeline(include_dynamic_boundary=False)
+    pipeline.register_static("role", BASE_ROLE_SECTION)
+    pipeline.register_static("cwd", f"Current cwd: {cwd}")
+    pipeline.register_dynamic(
+        "permissions",
+        lambda: _format_permission_section(permission_summary),
+    )
+    pipeline.register_dynamic(
+        "tools",
+        lambda: _format_tools_section(tools),
+    )
 
     skills = merged_extras.get("skills") or []
     if skills:
-        sections.append(_format_skills_section(list(skills)))
+        pipeline.register_dynamic(
+            "skills",
+            lambda: _format_skills_section(list(skills)),
+        )
 
     mcp_servers = merged_extras.get("mcpServers") or []
     if mcp_servers:
-        sections.append(_format_mcp_section(list(mcp_servers)))
+        pipeline.register_dynamic(
+            "mcp",
+            lambda: _format_mcp_section(list(mcp_servers)),
+        )
 
-    return "\n\n".join(section for section in sections if section.strip())
+    return pipeline.build()

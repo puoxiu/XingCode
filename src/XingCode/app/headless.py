@@ -6,6 +6,7 @@ from pathlib import Path
 from XingCode.adapters import create_model_adapter
 from XingCode.commands import handle_cli_input
 from XingCode.core import build_system_prompt, run_agent_turn
+from XingCode.core.context_manager import ContextManager
 from XingCode.security import PermissionManager
 from XingCode.storage import (
     SessionData,
@@ -75,6 +76,7 @@ def run_headless(
         # 进入真实模型链路前，用 runtime 重新创建 tools，确保 MCP 等 runtime 相关能力能接入。
         tools = create_default_tool_registry(effective_cwd, runtime=runtime)
         model = create_model_adapter(runtime.get("model"), tools, runtime)
+        context_manager = ContextManager(model=runtime.get("model", "default"))
 
         # 如果传入了 session，则沿用历史消息继续会话；否则保持原来的单轮模式。
         messages = list(session.messages) if session is not None else []
@@ -98,6 +100,7 @@ def run_headless(
             messages=messages,
             cwd=effective_cwd,
             permissions=permissions,
+            context_manager=context_manager,
             runtime=runtime,
         )
         if session is not None:

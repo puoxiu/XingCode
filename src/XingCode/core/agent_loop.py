@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from XingCode.core.context_manager import ContextManager
 from XingCode.core.tooling import ToolContext, ToolRegistry, ToolResult
 from XingCode.core.types import AgentStep, ChatMessage, ModelAdapter
 
@@ -133,6 +134,26 @@ def _end_permission_turn(permissions: Any | None) -> None:
         permissions.end_turn()
 
 
+def _compact_messages_if_needed(
+    current_messages: list[ChatMessage],
+    context_manager: ContextManager | None,
+    on_progress_message: Callable[[str], None] | None,
+) -> list[ChatMessage]:
+    """在模型继续思考前，必要时压缩上下文消息。"""
+
+    if context_manager is None:
+        return current_messages
+
+    context_manager.set_messages(current_messages)
+    if not context_manager.should_auto_compact():
+        return current_messages
+
+    compacted = context_manager.compact_messages()
+    if on_progress_message is not None:
+        on_progress_message("Context manager compacted older messages to stay within the model limit.")
+    return list(compacted)
+
+
 # ===================== 【核心】AI智能体主循环 =====================
 def run_agent_turn(
     *,
@@ -147,6 +168,7 @@ def run_agent_turn(
     on_assistant_message: Callable[[str], None] | None = None,
     on_progress_message: Callable[[str], None] | None = None,
     on_assistant_stream_chunk: Callable[[str], None] | None = None,
+    context_manager: ContextManager | None = None,
     runtime: dict[str, Any] | None = None,
 ) -> list[ChatMessage]:
     """Run one complete agent turn until final assistant output, user pause, or limit."""
@@ -165,6 +187,11 @@ def run_agent_turn(
     try:
         # -------------------------- 【3】进入核心思考循环 --------------------------
         for _step_index in range(max_steps):
+            current_messages = _compact_messages_if_needed(
+                current_messages,
+                context_manager,
+                on_progress_message,
+            )
             next_step = model.next(current_messages, on_stream_chunk=on_assistant_stream_chunk)
 
             if next_step.type == "assistant":

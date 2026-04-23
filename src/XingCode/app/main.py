@@ -9,6 +9,7 @@ from XingCode.adapters import create_model_adapter
 from XingCode.app.headless import run_headless
 from XingCode.commands import handle_cli_input, maybe_handle_management_command
 from XingCode.core import build_system_prompt, run_agent_turn
+from XingCode.core.context_manager import ContextManager
 from XingCode.security import PermissionManager
 from XingCode.storage import (
     AutosaveManager,
@@ -150,6 +151,9 @@ def _run_interactive_session(
         runtime=runtime,
         force_mock=force_mock,
     )
+    context_manager = ContextManager(
+        model=runtime.get("model", "default") if runtime else "default",
+    )
 
     messages: list[dict[str, Any]] = list(session.messages)
     try:
@@ -204,6 +208,7 @@ def _run_interactive_session(
                 messages=messages,
                 cwd=cwd,
                 permissions=permissions,
+                context_manager=context_manager,
                 runtime=runtime,
             )
             print(_extract_last_assistant_text(messages))
