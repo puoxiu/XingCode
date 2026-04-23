@@ -3,7 +3,7 @@
 from dataclasses import asdict
 
 from XingCode.core.tooling import ToolRegistry
-from XingCode.integrations import discover_skills
+from XingCode.integrations import create_mcp_backed_tools, discover_skills
 from XingCode.tools.ask_user import ask_user_tool
 from XingCode.tools.edit_file import edit_file_tool
 from XingCode.tools.list_files import list_files_tool
@@ -17,8 +17,11 @@ from XingCode.tools.write_file import write_file_tool
 def create_default_tool_registry(cwd: str, runtime: dict | None = None) -> ToolRegistry:
     """Assemble the minimal Phase 3 registry used by the main agent path."""
 
-    _ = (cwd, runtime)
     skills = [asdict(skill) for skill in discover_skills(cwd)]
+    mcp = create_mcp_backed_tools(
+        cwd=cwd,
+        mcp_servers=dict(runtime.get("mcpServers", {})) if runtime else {},
+    )
     return ToolRegistry(
         [
             ask_user_tool,
@@ -29,8 +32,11 @@ def create_default_tool_registry(cwd: str, runtime: dict | None = None) -> ToolR
             edit_file_tool,
             patch_file_tool,
             run_command_tool,
+            *mcp["tools"],
         ],
         skills=skills,
+        mcp_servers=mcp["servers"],
+        disposer=mcp["dispose"],
     )
 
 

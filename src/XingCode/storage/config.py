@@ -110,6 +110,55 @@ def _default_base_url(provider_hint: str) -> str:
     return "https://api.anthropic.com"
 
 
+def _normalize_mcp_servers(raw_value: Any) -> dict[str, dict[str, Any]]:
+    """规范化 settings 里的 mcpServers 结构。"""
+
+    if raw_value in (None, ""):
+        return {}
+    if not isinstance(raw_value, dict):
+        raise RuntimeError("mcpServers must be a JSON object keyed by server name.")
+
+    normalized: dict[str, dict[str, Any]] = {}
+    for server_name, server_config in raw_value.items():
+        if not isinstance(server_name, str) or not server_name.strip():
+            raise RuntimeError("mcpServers keys must be non-empty strings.")
+        if not isinstance(server_config, dict):
+            raise RuntimeError(f"mcpServers['{server_name}'] must be a JSON object.")
+
+        command = str(server_config.get("command", "")).strip()
+        args = server_config.get("args", [])
+        env = server_config.get("env", {})
+        protocol = server_config.get("protocol")
+        enabled = server_config.get("enabled", True)
+        cwd = server_config.get("cwd")
+
+        if args is None:
+            args = []
+        if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+            raise RuntimeError(f"mcpServers['{server_name}'].args must be a list of strings.")
+        if env is None:
+            env = {}
+        if not isinstance(env, dict) or not all(isinstance(key, str) for key in env):
+            raise RuntimeError(f"mcpServers['{server_name}'].env must be an object with string keys.")
+        if protocol not in {None, "", "newline-json", "content-length"}:
+            raise RuntimeError(
+                f"mcpServers['{server_name}'].protocol must be newline-json, content-length, or omitted."
+            )
+        if cwd is not None and not isinstance(cwd, str):
+            raise RuntimeError(f"mcpServers['{server_name}'].cwd must be a string when provided.")
+
+        normalized[server_name.strip()] = {
+            "command": command,
+            "args": list(args),
+            "env": {str(key): str(value) for key, value in env.items()},
+            "protocol": str(protocol).strip() or None if protocol is not None else None,
+            "enabled": bool(enabled),
+            "cwd": cwd,
+        }
+
+    return normalized
+
+
 def load_runtime_config(cwd: str | Path | None = None) -> dict[str, Any]:
     """
     【终极核心函数】整合所有配置源，生成【最终运行时配置】
@@ -181,12 +230,17 @@ def load_runtime_config(cwd: str | Path | None = None) -> dict[str, Any]:
             "No API key configured. Set ~/.xingcode/settings.json or XINGCODE_API_KEY."
         )
 
+    mcp_servers = _normalize_mcp_servers(
+        effective.get("mcpServers", effective.get("mcp_servers"))
+    )
+
     # 返回标准化的运行时配置字典（统一键名，方便后续使用）
     return {
         "model": model,                # 最终使用的AI模型
         "provider": resolved_provider, # 最终推断的AI提供商
         "baseUrl": base_url,           # API请求基础地址
         "apiKey": api_key or None,     # API密钥（mock为None）
+        "mcpServers": mcp_servers,     # MCP 静态 server 配置
         "sourceSummary": (             # 配置来源说明（调试用）
             f"settings: {XINGCODE_SETTINGS_PATH} + {project_settings_path(cwd)} > process.env"
         ),

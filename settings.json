@@ -1,0 +1,12 @@
+{
+  "model": "mock",
+  "mcpServers": {
+    "fake": {
+      "command": "python3",
+      "args": [
+        "/Users/xing/Desktop/agent/cc/XingCode/tests/fixtures/fake_mcp_server.py"
+      ],
+      "protocol": "newline-json"
+    }
+  }
+}

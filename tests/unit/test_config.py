@@ -145,3 +145,39 @@ def test_save_settings_creates_and_merges_file(
     assert saved["model"] == "claude-sonnet"
     assert saved["apiKey"] == "saved-key"
     assert saved["env"] == {"A": "1", "B": "2"}
+
+
+def test_load_runtime_config_includes_mcp_servers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """runtime 配置应把静态 mcpServers 规范化后带出来。"""
+
+    global_settings = tmp_path / "home-settings.json"
+    _write_json(
+        global_settings,
+        {
+            "model": "mock",
+            "mcpServers": {
+                "fake": {
+                    "command": "python3",
+                    "args": ["server.py"],
+                    "protocol": "newline-json",
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(config_module, "XINGCODE_SETTINGS_PATH", global_settings)
+
+    runtime = config_module.load_runtime_config(tmp_path / "workspace")
+
+    assert runtime["mcpServers"] == {
+        "fake": {
+            "command": "python3",
+            "args": ["server.py"],
+            "env": {},
+            "protocol": "newline-json",
+            "enabled": True,
+            "cwd": None,
+        }
+    }

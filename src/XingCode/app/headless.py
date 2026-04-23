@@ -71,6 +71,9 @@ def run_headless(
             return cli_output
 
         runtime = load_runtime_config(effective_cwd)
+        tools.dispose()
+        # 进入真实模型链路前，用 runtime 重新创建 tools，确保 MCP 等 runtime 相关能力能接入。
+        tools = create_default_tool_registry(effective_cwd, runtime=runtime)
         model = create_model_adapter(runtime.get("model"), tools, runtime)
 
         # 如果传入了 session，则沿用历史消息继续会话；否则保持原来的单轮模式。
