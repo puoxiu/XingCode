@@ -7,3 +7,5 @@ dist/
 *.pyc
 node/
 Output/
+
+FROM_SCRATCH_IMPLEMENTATION_GUIDE.md
