@@ -4,7 +4,7 @@ from XingCode.core.prompt import build_system_prompt
 from XingCode.core.tooling import ToolDefinition, ToolRegistry, ToolResult
 
 
-def _build_registry() -> ToolRegistry:
+def _build_registry(*, skills: list[dict] | None = None) -> ToolRegistry:
     """Create a small registry so the prompt builder can render tool inventory."""
 
     return ToolRegistry(
@@ -23,7 +23,8 @@ def _build_registry() -> ToolRegistry:
                 validator=lambda value: value,
                 run=lambda _input, _context: ToolResult(ok=True, output="ok"),
             ),
-        ]
+        ],
+        skills=skills,
     )
 
 
@@ -43,6 +44,7 @@ def test_build_system_prompt_includes_base_sections(tmp_path: Path) -> None:
     assert "Available tools:" in prompt
     assert "read_file: Read file content." in prompt
     assert "run_command: Run a local command." in prompt
+    assert "call load_skill before following it" in prompt
 
 
 def test_build_system_prompt_includes_skills_and_mcp(tmp_path: Path) -> None:
@@ -71,6 +73,28 @@ def test_build_system_prompt_includes_skills_and_mcp(tmp_path: Path) -> None:
     assert "demo: demo skill" in prompt
     assert "Configured MCP servers:" in prompt
     assert "fake: connected, tools=1, resources=1, prompts=1, protocol=newline-json" in prompt
+
+
+def test_build_system_prompt_reads_skills_from_registry_metadata(tmp_path: Path) -> None:
+    """当 ToolRegistry 自带 skills metadata 时，prompt 应自动注入。"""
+
+    prompt = build_system_prompt(
+        str(tmp_path),
+        tools=_build_registry(
+            skills=[
+                {
+                    "name": "demo",
+                    "description": "registry skill",
+                    "path": str(tmp_path / "SKILL.md"),
+                    "source": "project",
+                }
+            ]
+        ),
+        permission_summary=[],
+    )
+
+    assert "Available skills:" in prompt
+    assert "demo: registry skill" in prompt
 
 
 def test_build_system_prompt_mentions_sequential_thinking_server(tmp_path: Path) -> None:

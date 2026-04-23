@@ -10,6 +10,7 @@ def test_create_default_tool_registry_contains_phase_three_tools() -> None:
 
     assert tool_names == [
         "ask_user",
+        "load_skill",
         "list_files",
         "read_file",
         "write_file",

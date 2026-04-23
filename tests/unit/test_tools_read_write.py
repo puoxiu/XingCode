@@ -6,6 +6,7 @@ from XingCode.core.tooling import ToolContext
 from XingCode.security.permissions import PermissionManager
 from XingCode.tools.edit_file import edit_file_tool
 from XingCode.tools.list_files import list_files_tool
+from XingCode.tools.load_skill import create_load_skill_tool
 from XingCode.tools.patch_file import patch_file_tool
 from XingCode.tools.read_file import read_file_tool
 from XingCode.tools.write_file import write_file_tool
@@ -93,3 +94,20 @@ def test_patch_file_tool_applies_multiple_replacements(tmp_path: Path) -> None:
     assert result.ok is True
     assert "2 replacement" in result.output
     assert target.read_text(encoding="utf-8") == "hi world\nhi cc\n"
+
+
+def test_load_skill_tool_returns_full_skill_content(tmp_path: Path) -> None:
+    """load_skill 工具应返回 skill 的元信息和完整 SKILL.md 文本。"""
+
+    skill_file = tmp_path / ".xingcode" / "skills" / "demo" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("# Demo\n\nSkill description\n\n## Steps\n1. Read files\n", encoding="utf-8")
+
+    tool = create_load_skill_tool(str(tmp_path))
+    result = tool.run({"name": "demo"}, ToolContext(cwd=str(tmp_path)))
+
+    assert result.ok is True
+    assert "SKILL: demo" in result.output
+    assert "SOURCE: project" in result.output
+    assert "# Demo" in result.output
+    assert "## Steps" in result.output

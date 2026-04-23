@@ -19,6 +19,7 @@ def test_format_slash_commands_includes_phase_ten_commands() -> None:
 
     assert "/help" in commands
     assert "/tools" in commands
+    assert "/skills" in commands
     assert "/config" in commands
     assert "/permissions" in commands
     assert "/history" in commands
@@ -83,6 +84,28 @@ def test_handle_cli_input_executes_read_shortcut(tmp_path: Path) -> None:
     assert output is not None
     assert "FILE: note.txt" in output
     assert "hello from shortcut" in output
+
+
+def test_handle_cli_input_lists_discovered_skills(tmp_path: Path) -> None:
+    """`/skills` 应直接显示当前发现的 skill 摘要。"""
+
+    skill_file = tmp_path / ".xingcode" / "skills" / "demo" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("# Demo\n\nProject description\n", encoding="utf-8")
+
+    registry = create_default_tool_registry(str(tmp_path))
+    permissions = PermissionManager(str(tmp_path), prompt=lambda request: {"decision": "allow_once"})
+
+    output = handle_cli_input(
+        "/skills",
+        cwd=str(tmp_path),
+        tools=registry,
+        permissions=permissions,
+        history_entries=[],
+    )
+
+    assert output is not None
+    assert "demo: Project description [project]" in output
 
 
 def test_handle_cli_input_suggests_similar_unknown_commands(tmp_path: Path) -> None:

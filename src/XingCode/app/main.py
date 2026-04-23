@@ -7,7 +7,7 @@ from typing import Any
 
 from XingCode.adapters import create_model_adapter
 from XingCode.app.headless import run_headless
-from XingCode.commands import handle_cli_input
+from XingCode.commands import handle_cli_input, maybe_handle_management_command
 from XingCode.core import build_system_prompt, run_agent_turn
 from XingCode.security import PermissionManager
 from XingCode.storage import (
@@ -120,12 +120,15 @@ def _sync_session_runtime_state(
     messages: list[dict[str, Any]],
     history_entries: list[str],
     permissions: PermissionManager,
+    tools,
 ) -> None:
     """把当前 CLI 运行态同步回 session 对象。"""
 
     session.messages = list(messages)
     session.history = list(history_entries)
     session.permissions_summary = list(permissions.get_summary())
+    session.skills = tools.get_skills()
+    session.mcp_servers = tools.get_mcp_servers()
 
 
 def _run_interactive_session(
@@ -174,7 +177,7 @@ def _run_interactive_session(
             )
             if cli_output is not None:
                 print(cli_output)
-                _sync_session_runtime_state(session, messages, history_entries, permissions)
+                _sync_session_runtime_state(session, messages, history_entries, permissions, tools)
                 autosave.mark_dirty()
                 autosave.save_if_needed()
                 continue
@@ -204,12 +207,12 @@ def _run_interactive_session(
                 runtime=runtime,
             )
             print(_extract_last_assistant_text(messages))
-            _sync_session_runtime_state(session, messages, history_entries, permissions)
+            _sync_session_runtime_state(session, messages, history_entries, permissions, tools)
             autosave.mark_dirty()
             autosave.save_if_needed()
     finally:
         # 退出时始终做一次完整快照，确保 delta 最终被合并，恢复更稳定。
-        _sync_session_runtime_state(session, messages, history_entries, permissions)
+        _sync_session_runtime_state(session, messages, history_entries, permissions, tools)
         autosave.force_save()
         print(f"Session saved: {session.session_id[:8]}")
         tools.dispose()
@@ -217,6 +220,19 @@ def _run_interactive_session(
 
 def main(argv: list[str] | None = None) -> int:
     """主 CLI 入口：支持 help、配置校验、安装和最小交互模式。"""
+
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    cwd = str(Path.cwd())   # 当前工作目录
+
+    # Phase 12 开始支持 management commands。这里在 argparse 前拦截，
+    # 避免把 `skills list` 误当成普通 prompt。
+    if raw_argv and raw_argv[0] == "skills":
+        try:
+            if maybe_handle_management_command(cwd, raw_argv):
+                return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
 
     parser = argparse.ArgumentParser(
         description="XingCode - A lightweight terminal coding assistant",
@@ -249,9 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         nargs="*",
         help="Optional one-shot prompt. If omitted, XingCode reads stdin or enters interactive mode.",
     )
-    args = parser.parse_args(argv)  # 解析命令行参数
-
-    cwd = str(Path.cwd())   # 当前工作目录
+    args = parser.parse_args(raw_argv)  # 解析命令行参数
 
     if args.install:
         # 如果指定了安装参数，运行安装向导

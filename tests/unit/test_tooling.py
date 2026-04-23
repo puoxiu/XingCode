@@ -136,3 +136,26 @@ def test_tool_registry_dispose_calls_disposer() -> None:
 
     # 断言：清理函数被成功执行（列表中有True）
     assert disposed == [True]
+
+
+def test_tool_registry_exposes_metadata_copies() -> None:
+    """
+    测试用例6：验证注册表会暴露 skills / prompt extras 的副本
+    核心目标：确保调用方无法直接篡改 ToolRegistry 内部 metadata
+    """
+
+    registry = ToolRegistry(
+        [],
+        skills=[{"name": "demo", "description": "demo skill", "source": "project"}],
+        mcp_servers=[{"name": "fake", "status": "connected"}],
+    )
+
+    skills = registry.get_skills()
+    skills.append({"name": "mutated"})
+    extras = registry.build_prompt_extras()
+
+    assert registry.get_skills() == [
+        {"name": "demo", "description": "demo skill", "source": "project"}
+    ]
+    assert extras["skills"][0]["name"] == "demo"
+    assert extras["mcpServers"][0]["name"] == "fake"

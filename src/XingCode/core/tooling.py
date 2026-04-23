@@ -61,9 +61,14 @@ class ToolRegistry:
     def __init__(
         self,
         tools: list[ToolDefinition],
+        skills: list[dict[str, Any]] | None = None,
+        mcp_servers: list[dict[str, Any]] | None = None,
         disposer: Callable[[], Any] | None = None,
     ) -> None:
+        # 统一复制一份 metadata，避免调用方拿到内部可变对象后直接改坏注册表状态。
         self._tools = list(tools)
+        self._skills = [dict(skill) for skill in (skills or [])]
+        self._mcp_servers = [dict(server) for server in (mcp_servers or [])]
         self._disposer = disposer
         self._tool_index: dict[str, ToolDefinition] = {tool.name: tool for tool in tools}
 
@@ -72,6 +77,26 @@ class ToolRegistry:
 
     def find(self, name: str) -> ToolDefinition | None:
         return self._tool_index.get(name)
+
+    def get_skills(self) -> list[dict[str, Any]]:
+        """返回当前注册表携带的 skills 摘要副本。"""
+
+        return [dict(skill) for skill in self._skills]
+
+    def get_mcp_servers(self) -> list[dict[str, Any]]:
+        """返回当前注册表携带的 MCP server 摘要副本。"""
+
+        return [dict(server) for server in self._mcp_servers]
+
+    def build_prompt_extras(self) -> dict[str, Any]:
+        """把 registry metadata 转成 prompt builder 可直接消费的 extras。"""
+
+        extras: dict[str, Any] = {}
+        if self._skills:
+            extras["skills"] = self.get_skills()
+        if self._mcp_servers:
+            extras["mcpServers"] = self.get_mcp_servers()
+        return extras
 
     def execute(self, tool_name: str, input_data: Any, context: ToolContext) -> ToolResult:
         tool = self.find(tool_name)

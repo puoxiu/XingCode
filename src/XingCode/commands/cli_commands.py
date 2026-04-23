@@ -28,6 +28,7 @@ class SlashCommand:
 SLASH_COMMANDS = [
     SlashCommand("/help", "/help", "显示本地 slash 命令帮助。"),
     SlashCommand("/tools", "/tools", "显示当前已注册工具和快捷命令。"),
+    SlashCommand("/skills", "/skills", "显示当前发现的 skills。"),
     SlashCommand("/config", "/config", "显示当前配置诊断信息。"),
     SlashCommand("/permissions", "/permissions", "显示当前权限状态摘要。"),
     SlashCommand("/history", "/history", "显示最近输入历史。"),
@@ -48,6 +49,7 @@ def format_slash_commands() -> str:
             "",
             "说明：",
             "- `/read` 和 `/cmd` 会直接执行本地工具，不经过模型推理。",
+            "- `/skills` 会显示当前工作区和用户目录中发现的 skills。",
             "- 普通自然语言输入仍会进入 Agent 主链路。",
         ]
     )
@@ -81,6 +83,26 @@ def _format_tools_summary(tools: ToolRegistry) -> str:
             "- /cmd [cwd::]<command>  -> run_command",
         ]
     )
+    return "\n".join(lines)
+
+
+def _format_skills_summary(tools: ToolRegistry) -> str:
+    """显示当前 registry 中已经发现的 skill 摘要。"""
+
+    skills = tools.get_skills()
+    if not skills:
+        return (
+            "No skills discovered. Add skills under "
+            "~/.xingcode/skills/<name>/SKILL.md, .xingcode/skills/<name>/SKILL.md, "
+            ".claude/skills/<name>/SKILL.md, or ~/.claude/skills/<name>/SKILL.md."
+        )
+
+    lines = ["当前发现的 skills：", ""]
+    for skill in skills:
+        name = str(skill.get("name", "unknown"))
+        description = str(skill.get("description", "")).strip() or "no description"
+        source = str(skill.get("source", "unknown"))
+        lines.append(f"- {name}: {description} [{source}]")
     return "\n".join(lines)
 
 
@@ -183,6 +205,8 @@ def try_handle_local_command(
         return format_slash_commands()
     if user_input == "/tools":
         return _format_tools_summary(tools)
+    if user_input == "/skills":
+        return _format_skills_summary(tools)
     if user_input == "/config":
         return _format_config_diagnostic(cwd)
     if user_input == "/permissions":

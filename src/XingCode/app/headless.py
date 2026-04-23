@@ -65,6 +65,8 @@ def run_headless(
             if session is not None:
                 session.history = list(history_entries)
                 session.permissions_summary = list(permissions.get_summary())
+                session.skills = tools.get_skills()
+                session.mcp_servers = tools.get_mcp_servers()
                 save_session(session)
             return cli_output
 
@@ -99,6 +101,8 @@ def run_headless(
             session.messages = list(result_messages)
             session.history = list(history_entries)
             session.permissions_summary = list(permissions.get_summary())
+            session.skills = tools.get_skills()
+            session.mcp_servers = tools.get_mcp_servers()
             save_session(session)
     finally:
         tools.dispose()

@@ -110,6 +110,28 @@ def test_run_headless_executes_read_shortcut_without_runtime_config(
     assert "hello headless shortcut" in response
 
 
+def test_run_headless_lists_skills_without_runtime_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """本地 `/skills` 命令应和 `/help` 一样，不依赖 runtime 配置。"""
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config_module, "XINGCODE_SETTINGS_PATH", tmp_path / "home-settings.json")
+    monkeypatch.setattr(history_module, "XINGCODE_HISTORY_PATH", tmp_path / "history.json")
+    monkeypatch.setattr(session_module, "SESSIONS_DIR", tmp_path / "sessions")
+    monkeypatch.setattr(session_module, "SESSIONS_INDEX_PATH", tmp_path / "sessions-index.json")
+    _clear_runtime_env(monkeypatch)
+
+    skill_file = tmp_path / ".xingcode" / "skills" / "demo" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("# Demo\n\nHeadless description\n", encoding="utf-8")
+
+    response = run_headless("/skills", cwd=str(tmp_path))
+
+    assert "demo: Headless description [project]" in response
+
+
 def test_run_headless_can_save_and_resume_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

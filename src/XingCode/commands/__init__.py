@@ -11,6 +11,7 @@ from XingCode.commands.cli_commands import (
     try_execute_local_tool_command,
     try_handle_local_command,
 )
+from XingCode.commands.manage_cli import maybe_handle_management_command
 
 __all__ = [
     "SLASH_COMMANDS",
@@ -19,6 +20,7 @@ __all__ = [
     "find_matching_slash_commands",
     "format_slash_commands",
     "handle_cli_input",
+    "maybe_handle_management_command",
     "parse_local_tool_shortcut",
     "try_execute_local_tool_command",
     "try_handle_local_command",

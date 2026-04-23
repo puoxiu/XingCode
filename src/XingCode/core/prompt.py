@@ -12,7 +12,8 @@ Default behavior:
 - Use tools to read files, edit code, and verify behavior.
 - Make minimal, working-oriented changes that match the user's request.
 - If clarification is required, prefer the ask_user tool over plain assistant questions.
-- Continue after tool results until the task is complete or you need the user."""
+- Continue after tool results until the task is complete or you need the user.
+- If the user names a skill or clearly asks for a workflow matching a listed skill, call load_skill before following it."""
 
 
 def _normalize_tool_definitions(
@@ -115,6 +116,20 @@ def _format_mcp_section(mcp_servers: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _merge_prompt_extras(
+    tools: ToolRegistry | Iterable[ToolDefinition] | None,
+    extras: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """合并显式 extras 和 ToolRegistry 自带的 metadata。"""
+
+    merged: dict[str, Any] = {}
+    if isinstance(tools, ToolRegistry):
+        merged.update(tools.build_prompt_extras())
+    if extras:
+        merged.update(extras)
+    return merged
+
+
 def build_system_prompt(
     cwd: str,
     tools: ToolRegistry | Iterable[ToolDefinition] | None = None,
@@ -123,7 +138,7 @@ def build_system_prompt(
 ) -> str:
     """Build the Phase 6 system prompt from cwd, tools, permissions, and extras."""
 
-    extras = extras or {}
+    merged_extras = _merge_prompt_extras(tools, extras)
     sections = [
         BASE_ROLE_SECTION,
         f"Current cwd: {cwd}",
@@ -131,11 +146,11 @@ def build_system_prompt(
         _format_tools_section(tools),
     ]
 
-    skills = extras.get("skills") or []
+    skills = merged_extras.get("skills") or []
     if skills:
         sections.append(_format_skills_section(list(skills)))
 
-    mcp_servers = extras.get("mcpServers") or []
+    mcp_servers = merged_extras.get("mcpServers") or []
     if mcp_servers:
         sections.append(_format_mcp_section(list(mcp_servers)))
 
