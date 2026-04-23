@@ -7,7 +7,13 @@ from XingCode.adapters import create_model_adapter
 from XingCode.commands import handle_cli_input
 from XingCode.core import build_system_prompt, run_agent_turn
 from XingCode.security import PermissionManager
-from XingCode.storage import load_history_entries, load_runtime_config, remember_history_entry
+from XingCode.storage import (
+    SessionData,
+    load_history_entries,
+    load_runtime_config,
+    remember_history_entry,
+    save_session,
+)
 from XingCode.tools import create_default_tool_registry
 
 
@@ -29,7 +35,12 @@ def _extract_last_assistant_text(messages: list[dict]) -> str:
     return str(last_assistant.get("content", "")) if last_assistant is not None else "(no response)"
 
 
-def run_headless(prompt: str | None = None, cwd: str | None = None) -> str:
+def run_headless(
+    prompt: str | None = None,
+    cwd: str | None = None,
+    *,
+    session: SessionData | None = None,
+) -> str:
     """运行一次无 UI 的单轮 Agent，并返回 assistant 文本。"""
 
     effective_cwd = str(Path(cwd or Path.cwd()).resolve())
@@ -51,23 +62,30 @@ def run_headless(prompt: str | None = None, cwd: str | None = None) -> str:
             history_entries=history_entries,
         )
         if cli_output is not None:
+            if session is not None:
+                session.history = list(history_entries)
+                session.permissions_summary = list(permissions.get_summary())
+                save_session(session)
             return cli_output
 
         runtime = load_runtime_config(effective_cwd)
         model = create_model_adapter(runtime.get("model"), tools, runtime)
 
-        # headless 入口只做一轮，因此系统 prompt 和用户输入一次性组装即可。
-        messages = [
-            {
-                "role": "system",
-                "content": build_system_prompt(
-                    effective_cwd,
-                    tools=tools,
-                    permission_summary=permissions.get_summary(),
-                ),
-            },
-            {"role": "user", "content": effective_prompt},
-        ]
+        # 如果传入了 session，则沿用历史消息继续会话；否则保持原来的单轮模式。
+        messages = list(session.messages) if session is not None else []
+        system_message = {
+            "role": "system",
+            "content": build_system_prompt(
+                effective_cwd,
+                tools=tools,
+                permission_summary=permissions.get_summary(),
+            ),
+        }
+        if messages and messages[0].get("role") == "system":
+            messages[0] = system_message
+        else:
+            messages.insert(0, system_message)
+        messages.append({"role": "user", "content": effective_prompt})
 
         result_messages = run_agent_turn(
             model=model,
@@ -77,6 +95,11 @@ def run_headless(prompt: str | None = None, cwd: str | None = None) -> str:
             permissions=permissions,
             runtime=runtime,
         )
+        if session is not None:
+            session.messages = list(result_messages)
+            session.history = list(history_entries)
+            session.permissions_summary = list(permissions.get_summary())
+            save_session(session)
     finally:
         tools.dispose()
 

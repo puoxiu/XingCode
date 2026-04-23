@@ -15,12 +15,13 @@
 也就是说，你完全可以在自己的项目里把目录设计得更清楚、更易维护；但在实现顺序上，仍然要遵守原项目的真实主链路：
 
 - 先协议
-- 再工具
-- 再权限
+- 再安全边界和核心工具
 - 再 agent loop
-- 再模型接入
-- 再入口
-- 最后才是 session、TUI、MCP、memory 这些增强能力
+- 再 prompt、配置、模型接入
+- 再 headless / main 入口
+- 再 history、session 这些可验证的持久化能力
+- 再 skills、MCP、context、memory、observability 这些增强能力
+- 最后再做 TUI 这层交互外壳
 
 ---
 
@@ -281,25 +282,16 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 
 **弄清系统如何真正启动，以及模型如何接入。**
 
-### 第 3 轮：看会话和 UI
+### 第 3 轮：先看会话持久化
 
 按这个顺序读：
 
 1. `minicode/session.py`
 2. `minicode/tui/session_flow.py`
-3. `minicode/tui/state.py`
-4. `minicode/tui/types.py`
-5. `minicode/tui/transcript.py`
-6. `minicode/tui/input_parser.py`
-7. `minicode/tui/navigation.py`
-8. `minicode/tui/tool_lifecycle.py`
-9. `minicode/tui/event_flow.py`
-10. `minicode/tui/renderer.py`
-11. `minicode/tty_app.py`
 
 这一轮的目的：
 
-**理解全屏 TTY 是怎样包住主内核的。**
+**先把“会话如何创建、保存、恢复、自动保存”看明白；这里看 `session_flow.py` 只是为了理解 session 未来怎样被 UI 消费，不代表现在就要先做 TUI。**
 
 ### 第 4 轮：看增强系统
 
@@ -318,6 +310,31 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 这一轮的目的：
 
 **理解完整产品体验是如何在主链路之外叠出来的。**
+
+### 第 5 轮：最后看 TUI
+
+按这个顺序读：
+
+1. `minicode/tui/state.py`
+2. `minicode/tui/types.py`
+3. `minicode/tui/transcript.py`
+4. `minicode/tui/input_parser.py`
+5. `minicode/tui/navigation.py`
+6. `minicode/tui/tool_lifecycle.py`
+7. `minicode/tui/event_flow.py`
+8. `minicode/tui/renderer.py`
+9. `minicode/tui/screen.py`
+10. `minicode/tui/chrome.py`
+11. `minicode/tui/theme.py`
+12. `minicode/tui/session_flow.py`
+13. `minicode/tui/input_handler.py`
+14. `minicode/tui/runtime_control.py`
+15. `minicode/tui/tool_helpers.py`
+16. `minicode/tty_app.py`
+
+这一轮的目的：
+
+**在 core、session、skills、MCP 等接口都稳定后，再理解全屏 TTY 是怎样把这些能力统一包起来的。**
 
 ---
 
@@ -340,7 +357,7 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 
 ## 总实现原则
 
-你整个开发过程都按这 6 条原则推进：
+你整个开发过程都按这 7 条原则推进：
 
 1. 每一阶段只解决一个层级的问题。
 2. 先做最小闭环，再做增强版。
@@ -348,6 +365,7 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 4. 先做 mock model，再接真实 API。
 5. 工具前先有权限系统。
 6. 每一阶段结束前，先补测试，再进入下一阶段。
+7. 对 XingCode 当前进度来说，TUI 放在最后收尾，等 skills、MCP、context、memory 稳定后再做。
 
 ---
 
@@ -960,11 +978,230 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 
 ---
 
-## Phase 12：最后再做 TUI
+## 到 Phase 11 之后的顺序调整建议
+
+如果 XingCode 已经开发到 Phase 11，那么建议把原来的 TUI 阶段后移到最后。
+
+原因有 3 个：
+
+1. TUI 是交互外壳，不是主链路本体；它不应该反过来驱动 core 设计。
+2. `skills`、`MCP`、`context manager`、`memory` 会继续改变 prompt、工具装配、session 展示信息；如果先做 TUI，后面很容易反复修改 transcript、event flow、screen state。
+3. 你现在已经有 `headless.py`、`main.py` 和 `session.py`，完全可以先把非 UI 能力做完，再用稳定接口一次性接到 TUI。
+
+因此，后面的推荐顺序改成：
+
+1. 先做 skills 和管理命令
+2. 再做 MCP
+3. 再做 context manager
+4. 再做 memory
+5. 再做 observability / user profile
+6. 最后做 TUI
+
+这属于**开发顺序调整**，不是**功能范围调整**。
+
+你仍然是在模仿 MiniCode-Python，只是把最容易返工的 UI 外壳压到最后收尾。
+
+---
+
+## Phase 12：实现管理命令、skills 和工具装配增强
 
 ### 本阶段目标
 
-把内核包上一层全屏终端 UI。
+补齐开发者管理能力和技能系统。
+
+### 需要创建的文件
+
+- `src/your_agent/commands/manage_cli.py`
+- `src/your_agent/integrations/skills.py`
+- `src/your_agent/tools/__init__.py` 增强版
+- `tests/unit/test_skills.py`
+- `tests/unit/test_manage_cli.py`
+
+### 需要重点阅读/模仿的源码
+
+- `minicode/manage_cli.py`
+- `minicode/skills.py`
+- `minicode/tools/__init__.py`
+- `tests/test_skills.py`
+
+### 本阶段要实现的内容
+
+1. skill discovery
+2. load skill
+3. install/remove skill
+4. 管理命令入口
+5. 把 skills 注入工具注册和 prompt
+
+### 实现要求
+
+1. skills 先服务 headless 和 main，不要为了 TUI 先发明 UI 状态结构。
+2. 先把发现、加载、安装、移除这条主链路做稳，再补更多管理命令。
+3. tools 和 prompt 中的 skill 注入要复用同一份 discovery 结果。
+
+### 本阶段验收标准
+
+- 你可以发现 skill、加载 skill，并通过 CLI 管理它们
+
+---
+
+## Phase 13：实现 MCP
+
+### 本阶段目标
+
+让外部 MCP server 能被当成动态工具源接入系统。
+
+### 需要创建的文件
+
+- `src/your_agent/integrations/mcp.py`
+- `tests/integration/test_mcp.py`
+
+### 需要重点阅读/模仿的源码
+
+- `minicode/mcp.py`
+- `tests/test_mcp.py`
+
+### 本阶段要实现的内容
+
+#### 第一版
+
+1. stdio client
+2. 静态 server config
+3. list tools
+4. call tool
+
+#### 第二版
+
+5. resources
+6. prompts
+7. lazy init
+8. 错误恢复
+
+### 暂时不要做
+
+- 一开始就做全部协议分支
+- 一开始就做复杂缓存
+
+### 本阶段验收标准
+
+- MCP server 已经能作为普通工具源接进系统
+
+---
+
+## Phase 14：实现 context manager
+
+### 本阶段目标
+
+防止长会话把上下文打爆。
+
+### 需要创建的文件
+
+- `src/your_agent/core/context_manager.py`
+- `src/your_agent/core/prompt_pipeline.py`
+- `tests/unit/test_context_manager.py`
+
+### 需要重点阅读/模仿的源码
+
+- `minicode/context_manager.py`
+- `minicode/prompt_pipeline.py`
+
+### 本阶段要实现的内容
+
+1. token 估算
+2. message token 估算
+3. context window tracking
+4. compact 策略
+
+### 实现要求
+
+1. 第一版只要能保 system prompt + 最近消息。
+2. 复杂的多层摘要可以后补。
+
+### 本阶段验收标准
+
+- 长会话不会直接失控
+
+---
+
+## Phase 15：实现 memory
+
+### 本阶段目标
+
+让 Agent 跨会话记住项目约定和历史决策。
+
+### 需要创建的文件
+
+- `src/your_agent/storage/memory.py`
+- `tests/unit/test_memory.py`
+
+### 需要重点阅读/模仿的源码
+
+- `minicode/memory.py`
+
+### 本阶段要实现的内容
+
+#### 第一版
+
+1. memory scopes
+2. memory entry
+3. 文件持久化
+4. 简单搜索
+5. prompt 注入
+
+#### 第二版
+
+6. TF-IDF
+7. usage_count
+8. recency bonus
+
+### 本阶段验收标准
+
+- 新会话能读取旧决策
+
+---
+
+## Phase 16：实现状态、成本、日志、用户画像
+
+### 本阶段目标
+
+补齐观测能力和个性化能力。
+
+### 需要创建的文件
+
+- `src/your_agent/observability/state.py`
+- `src/your_agent/observability/cost_tracker.py`
+- `src/your_agent/observability/logging_config.py`
+- `src/your_agent/storage/user_profile.py`
+- `tests/unit/test_state.py`
+- `tests/unit/test_cost_tracker.py`
+- `tests/unit/test_user_profile.py`
+
+### 需要重点阅读/模仿的源码
+
+- `minicode/state.py`
+- `minicode/cost_tracker.py`
+- `minicode/logging_config.py`
+- `minicode/user_profile.py`
+- `tests/test_new_features.py`
+
+### 本阶段要实现的内容
+
+1. store
+2. app state
+3. cost tracking
+4. logging
+5. user profile merge
+
+### 本阶段验收标准
+
+- 你已经拥有完整产品级辅助能力
+
+---
+
+## Phase 17：最后再做 TUI
+
+### 本阶段目标
+
+在前面的核心能力和增强能力都稳定后，把内核包上一层全屏终端 UI。
 
 ### 需要创建的文件
 
@@ -1010,13 +1247,15 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 5. 再 `tui/tool_lifecycle.py`
 6. 再 `tui/renderer.py`
 7. 再 `tui/event_flow.py`
-8. 最后 `tty_app.py`
+8. 再 `tui/session_flow.py`
+9. 最后 `tty_app.py`
 
 ### 实现要求
 
 1. 第一版先保证稳定，不要追求炫。
 2. transcript 是中心，不是装饰。
 3. TUI 只是外壳，不应该改变 core 的行为。
+4. 这一阶段尽量只做“接线”和“渲染”，不要再回头改 core 协议。
 
 ### 暂时不要做
 
@@ -1027,194 +1266,6 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 ### 本阶段验收标准
 
 - 用户已经可以通过全屏终端稳定使用 Agent
-
----
-
-## Phase 13：实现管理命令、skills 和工具装配增强
-
-### 本阶段目标
-
-补齐开发者管理能力和技能系统。
-
-### 需要创建的文件
-
-- `src/your_agent/commands/manage_cli.py`
-- `src/your_agent/integrations/skills.py`
-- `src/your_agent/tools/__init__.py` 增强版
-- `tests/unit/test_skills.py`
-- `tests/unit/test_manage_cli.py`
-
-### 需要重点阅读/模仿的源码
-
-- `minicode/manage_cli.py`
-- `minicode/skills.py`
-- `minicode/tools/__init__.py`
-- `tests/test_skills.py`
-
-### 本阶段要实现的内容
-
-1. skill discovery
-2. load skill
-3. install/remove skill
-4. 管理命令入口
-5. 把 skills 注入工具注册和 prompt
-
-### 本阶段验收标准
-
-- 你可以发现 skill、加载 skill，并通过 CLI 管理它们
-
----
-
-## Phase 14：实现 MCP
-
-### 本阶段目标
-
-让外部 MCP server 能被当成动态工具源接入系统。
-
-### 需要创建的文件
-
-- `src/your_agent/integrations/mcp.py`
-- `tests/integration/test_mcp.py`
-
-### 需要重点阅读/模仿的源码
-
-- `minicode/mcp.py`
-- `tests/test_mcp.py`
-
-### 本阶段要实现的内容
-
-#### 第一版
-
-1. stdio client
-2. 静态 server config
-3. list tools
-4. call tool
-
-#### 第二版
-
-5. resources
-6. prompts
-7. lazy init
-8. 错误恢复
-
-### 暂时不要做
-
-- 一开始就做全部协议分支
-- 一开始就做复杂缓存
-
-### 本阶段验收标准
-
-- MCP server 已经能作为普通工具源接进系统
-
----
-
-## Phase 15：实现 context manager
-
-### 本阶段目标
-
-防止长会话把上下文打爆。
-
-### 需要创建的文件
-
-- `src/your_agent/core/context_manager.py`
-- `src/your_agent/core/prompt_pipeline.py`
-- `tests/unit/test_context_manager.py`
-
-### 需要重点阅读/模仿的源码
-
-- `minicode/context_manager.py`
-- `minicode/prompt_pipeline.py`
-
-### 本阶段要实现的内容
-
-1. token 估算
-2. message token 估算
-3. context window tracking
-4. compact 策略
-
-### 实现要求
-
-1. 第一版只要能保 system prompt + 最近消息。
-2. 复杂的多层摘要可以后补。
-
-### 本阶段验收标准
-
-- 长会话不会直接失控
-
----
-
-## Phase 16：实现 memory
-
-### 本阶段目标
-
-让 Agent 跨会话记住项目约定和历史决策。
-
-### 需要创建的文件
-
-- `src/your_agent/storage/memory.py`
-- `tests/unit/test_memory.py`
-
-### 需要重点阅读/模仿的源码
-
-- `minicode/memory.py`
-
-### 本阶段要实现的内容
-
-#### 第一版
-
-1. memory scopes
-2. memory entry
-3. 文件持久化
-4. 简单搜索
-5. prompt 注入
-
-#### 第二版
-
-6. TF-IDF
-7. usage_count
-8. recency bonus
-
-### 本阶段验收标准
-
-- 新会话能读取旧决策
-
----
-
-## Phase 17：实现状态、成本、日志、用户画像
-
-### 本阶段目标
-
-补齐观测能力和个性化能力。
-
-### 需要创建的文件
-
-- `src/your_agent/observability/state.py`
-- `src/your_agent/observability/cost_tracker.py`
-- `src/your_agent/observability/logging_config.py`
-- `src/your_agent/storage/user_profile.py`
-- `tests/unit/test_state.py`
-- `tests/unit/test_cost_tracker.py`
-- `tests/unit/test_user_profile.py`
-
-### 需要重点阅读/模仿的源码
-
-- `minicode/state.py`
-- `minicode/cost_tracker.py`
-- `minicode/logging_config.py`
-- `minicode/user_profile.py`
-- `tests/test_new_features.py`
-
-### 本阶段要实现的内容
-
-1. store
-2. app state
-3. cost tracking
-4. logging
-5. user profile merge
-
-### 本阶段验收标准
-
-- 你已经拥有完整产品级辅助能力
 
 ---
 
@@ -1246,13 +1297,9 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 - `tests/unit/test_cli_commands.py`
 - `tests/unit/test_session.py`
 
-### 第四组：UI
+### 第四组：增强系统
 
-- `tests/unit/test_tty_app.py`
-- `tests/unit/test_tui.py`
-
-### 第五组：增强系统
-
+- `tests/unit/test_manage_cli.py`
 - `tests/unit/test_skills.py`
 - `tests/integration/test_mcp.py`
 - `tests/unit/test_context_manager.py`
@@ -1260,6 +1307,11 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 - `tests/unit/test_state.py`
 - `tests/unit/test_cost_tracker.py`
 - `tests/unit/test_user_profile.py`
+
+### 第五组：UI 收尾
+
+- `tests/unit/test_tty_app.py`
+- `tests/unit/test_tui.py`
 
 ---
 
@@ -1300,30 +1352,39 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 
 - Phase 11
 - Phase 12
+- Phase 13
 
 目标：
 
-- 拥有会话和 TUI
+- 拥有会话、skills 和 MCP 基础扩展能力
 
-### 第 4 周及以后
+### 第 4 周
 
 完成：
 
-- Phase 13
 - Phase 14
 - Phase 15
 - Phase 16
+
+目标：
+
+- 拥有 context、memory、observability 的增强链路
+
+### 第 5 周及以后
+
+完成：
+
 - Phase 17
 
 目标：
 
-- 接近完整产品体验
+- 最后收尾 TUI，补齐完整交互体验
 
 ---
 
 ## 你最容易犯的 7 个错误
 
-1. 一上来先写 TUI。
+1. 在 session、skills、MCP 还没稳定时就先写 TUI。
 2. 一上来就接真实 API。
 3. 一上来就实现全部工具。
 4. 把权限系统放到最后。
@@ -1362,15 +1423,17 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 你再继续完成这些：
 
 - `storage/session.py`
-- `ui/tty_app.py`
-- `ui/tui/*`
+- `commands/manage_cli.py`
 - `integrations/skills.py`
 - `integrations/mcp.py`
 - `core/context_manager.py`
 - `storage/memory.py`
 - `observability/state.py`
 - `observability/cost_tracker.py`
+- `observability/logging_config.py`
 - `storage/user_profile.py`
+- `ui/tty_app.py`
+- `ui/tui/*`
 
 ---
 
@@ -1382,5 +1445,4 @@ TTY 和 TUI 必须和核心执行分开，否则后期很难维护。
 
 所以最稳的路径永远是：
 
-**先建干净目录，再做协议，再做工具，再做权限，再做 agent loop，再做模型和入口，最后做 session、TUI、MCP、memory 和各种增强能力。**
-
+**先建干净目录，再做协议，再做工具和权限，再做 agent loop，再做模型和入口，再做 session 和各类增强能力，最后再用 TUI 收尾。**

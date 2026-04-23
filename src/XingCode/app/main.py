@@ -10,7 +10,19 @@ from XingCode.app.headless import run_headless
 from XingCode.commands import handle_cli_input
 from XingCode.core import build_system_prompt, run_agent_turn
 from XingCode.security import PermissionManager
-from XingCode.storage import load_history_entries, load_runtime_config, remember_history_entry
+from XingCode.storage import (
+    AutosaveManager,
+    SessionData,
+    create_new_session,
+    format_session_list,
+    format_session_resume,
+    get_latest_session,
+    list_sessions,
+    load_history_entries,
+    load_runtime_config,
+    load_session,
+    remember_history_entry,
+)
 from XingCode.tools import create_default_tool_registry
 
 
@@ -80,13 +92,55 @@ def _load_runtime_or_fallback(cwd: str) -> tuple[dict[str, Any] | None, bool]:
         return None, True
 
 
-def _run_interactive_session(cwd: str, runtime: dict[str, Any] | None, force_mock: bool) -> int:
+def _resolve_cli_session(cwd: str, resume_session: str | None) -> tuple[SessionData, bool]:
+    """解析本次 CLI 应该使用的新会话还是恢复的旧会话。
+    如果 resume_session 为 None，创建新会话。
+    如果 resume_session 为 "latest"，恢复最新会话。
+    如果 resume_session 为其他值，恢复指定会话。
+    """
+
+    workspace = str(Path(cwd).resolve())
+    if resume_session:
+        if resume_session == "latest":
+            latest = get_latest_session(workspace=workspace)
+            if latest is not None:
+                return latest, True
+            return create_new_session(workspace=workspace), False
+
+        session = load_session(resume_session)
+        if session is None:
+            raise FileNotFoundError(f"Session '{resume_session}' not found.")
+        return session, True
+
+    return create_new_session(workspace=workspace), False
+
+
+def _sync_session_runtime_state(
+    session: SessionData,
+    messages: list[dict[str, Any]],
+    history_entries: list[str],
+    permissions: PermissionManager,
+) -> None:
+    """把当前 CLI 运行态同步回 session 对象。"""
+
+    session.messages = list(messages)
+    session.history = list(history_entries)
+    session.permissions_summary = list(permissions.get_summary())
+
+
+def _run_interactive_session(
+    cwd: str,
+    runtime: dict[str, Any] | None,
+    force_mock: bool,
+    session: SessionData,
+) -> int:
     """运行最简单的 stdin/stdout 交互循环。"""
 
     prompt_handler = _make_cli_permission_prompt()
     tools = create_default_tool_registry(cwd, runtime=runtime)  # 创建默认工具注册
     permissions = PermissionManager(cwd, prompt=prompt_handler)  # 创建权限管理器
     history_entries = load_history_entries()
+    autosave = AutosaveManager(session)
     model = create_model_adapter(
         model=runtime.get("model") if runtime else None,
         tools=tools,
@@ -94,7 +148,7 @@ def _run_interactive_session(cwd: str, runtime: dict[str, Any] | None, force_moc
         force_mock=force_mock,
     )
 
-    messages: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = list(session.messages)
     try:
         while True:
             try:
@@ -120,6 +174,9 @@ def _run_interactive_session(cwd: str, runtime: dict[str, Any] | None, force_moc
             )
             if cli_output is not None:
                 print(cli_output)
+                _sync_session_runtime_state(session, messages, history_entries, permissions)
+                autosave.mark_dirty()
+                autosave.save_if_needed()
                 continue
 
             # 每轮都重建 system prompt，确保权限摘要等动态信息保持最新。
@@ -147,7 +204,14 @@ def _run_interactive_session(cwd: str, runtime: dict[str, Any] | None, force_moc
                 runtime=runtime,
             )
             print(_extract_last_assistant_text(messages))
+            _sync_session_runtime_state(session, messages, history_entries, permissions)
+            autosave.mark_dirty()
+            autosave.save_if_needed()
     finally:
+        # 退出时始终做一次完整快照，确保 delta 最终被合并，恢复更稳定。
+        _sync_session_runtime_state(session, messages, history_entries, permissions)
+        autosave.force_save()
+        print(f"Session saved: {session.session_id[:8]}")
         tools.dispose()
 
 
@@ -166,6 +230,19 @@ def main(argv: list[str] | None = None) -> int:
         "--validate-config",
         action="store_true",
         help="Validate runtime config and exit",
+    )
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const="latest",
+        default=None,
+        metavar="SESSION_ID",
+        help="Resume a previous session (use 'latest' or a session ID)",
+    )
+    parser.add_argument(
+        "--list-sessions",
+        action="store_true",
+        help="List saved sessions and exit",
     )
     parser.add_argument(
         "prompt",
@@ -193,11 +270,18 @@ def main(argv: list[str] | None = None) -> int:
         print(output, file=stream)
         return 0 if is_valid else 1
 
+    if args.list_sessions:
+        # 如果指定了 list-sessions 参数，列出所有会话
+        # python -m XingCode.app.main --list-sessions
+        print(format_session_list(list_sessions()))
+        return 0
+
     if args.prompt:
         # 如果指定了 prompt 参数，运行 headless 模式
         # python -m XingCode.app.main "你的问题"
         try:
-            print(run_headless(" ".join(args.prompt), cwd=cwd))
+            session, _ = _resolve_cli_session(cwd, args.resume)
+            print(run_headless(" ".join(args.prompt), cwd=cwd, session=session))
             return 0
         except Exception as exc:  # noqa: BLE001
             print(f"Error: {exc}", file=sys.stderr)
@@ -206,14 +290,26 @@ def main(argv: list[str] | None = None) -> int:
     if not sys.stdin.isatty():
         # 如果标准输入不是终端，运行 headless 模式
         try:
-            print(run_headless(None, cwd=cwd))
+            # python -m XingCode.app.main --resume （恢复最新会话）
+            # python -m XingCode.app.main --resume <SESSION_ID> （恢复指定会话）
+            session, _ = _resolve_cli_session(cwd, args.resume)
+            print(run_headless(None, cwd=cwd, session=session))
             return 0
         except Exception as exc:  # noqa: BLE001
             print(f"Error: {exc}", file=sys.stderr)
             return 1
 
+    try:
+        session, did_resume = _resolve_cli_session(cwd, args.resume)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if did_resume:
+        print(format_session_resume(session))
+
     runtime, force_mock = _load_runtime_or_fallback(cwd)
-    return _run_interactive_session(cwd, runtime, force_mock)
+    return _run_interactive_session(cwd, runtime, force_mock, session)
 
 
 if __name__ == "__main__":
